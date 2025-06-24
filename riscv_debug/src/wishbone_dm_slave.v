@@ -13,8 +13,8 @@
 `undef DEBUG_OUTPUT_DATA1_REG_WRITE
 
 // DEBUG Register Data 0 is read
-`define DEBUG_OUTPUT_DATA0_REG_READ 1
-//`undef DEBUG_OUTPUT_DATA0_REG_READ
+//`define DEBUG_OUTPUT_DATA0_REG_READ 1
+`undef DEBUG_OUTPUT_DATA0_REG_READ
 
 // DEBUG Register Data 1 is read
 //`define DEBUG_OUTPUT_DATA1_REG_READ 1
@@ -26,7 +26,8 @@
 //`define DEBUG_OUTPUT_ACK 1
 `undef DEBUG_OUTPUT_ACK
 
-// TODO: read from data0
+`define DEBUG_OUTPUT_MEMORY_ACCESS_TIMER_EXPIRED 1
+//`undef DEBUG_OUTPUT_MEMORY_ACCESS_TIMER_EXPIRED
 
 // DM (RISCV DebugSpec, DM)
 //
@@ -99,6 +100,8 @@ localparam HALTREQ = 31;
 localparam RESUMEREQ = 30;
 localparam HARTRESET = 29;
 
+reg [31:0] counter_reg = 0;
+
 //
 // DualSource Registers
 //
@@ -119,6 +122,9 @@ reg data0_source_write_reg = 0;
 reg data0_source_mem_access_data_old = 0;
 reg data0_source_mem_access_data = 0;
 
+reg instruction_memory_read_done_reg_old = 0;
+reg instruction_memory_read_done_reg = 0;
+
 reg [7:0] abstr_cmdtype_reg;
 reg       abstr_aamvirtual_reg;
 reg [2:0] abstr_aamsize_reg;
@@ -134,18 +140,13 @@ reg [1:0] abstr_target_specific_reg;
 always @(posedge clk_i)
 begin
 
-    if (cur_state == IDLE)
-    begin
-        //data_is_ready = 0;
-    end
+   
 
     // if reset is asserted, 
     if (rst_i) 
     begin
         // add line for new register here
         data0_reg = ZERO_VALUE;
-
-        //data_is_ready = 0;
     end    
     else 
     begin
@@ -158,8 +159,6 @@ begin
 
             // update data0_reg
             data0_reg = data_i[31:0];
-
-            //data_is_ready = 26000000;
 
 `ifdef DEBUG_OUTPUT_DATA0_REG_WRITE
             // DEBUG - data0 update from mem_access triggered
@@ -211,7 +210,7 @@ begin
                             printf = ~printf;
 `endif
 
-/*
+/**/
                             //
                             // Interface the instruction memory at the address stored in PC.
                             // Read the memory value from instr_i
@@ -221,9 +220,13 @@ begin
                             pc_o_reg = data1_reg[31:0];
 
                             // update data0_reg with dummy value for now
-                            data0_reg = instr_i;
-*/
-                            data0_reg = 32'hCAFEBABE;
+                            //data0_reg = instr_i;
+
+
+
+//                            data0_reg = 32'hCAFEBABE;
+
+
 
                             // This wont work since this branch is only executed once (see toggle gate logic above)
                             //data_is_ready = data_is_ready + 1;
@@ -242,6 +245,14 @@ begin
             printf = ~printf;
 `endif
 
+        end
+
+        if (instruction_memory_read_done_reg_old != instruction_memory_read_done_reg)
+        begin
+            instruction_memory_read_done_reg_old = instruction_memory_read_done_reg;
+
+            // take the data from memory and put it into data0_reg once the memory access had time to finish
+            data0_reg = instr_i;
         end
 
     end
@@ -416,20 +427,12 @@ begin
                     ADDRESS_DM_CONTROL_REGISTER:
                     begin
                         data_o_reg = control_reg; // present the read data
-
-                        //// DEBUG
-                        //send_data = { 8'h32 };
-                        //printf = ~printf;
                     end
 
                     // dm.command (0x17)
                     ADDRESS_DM_COMMAND_REGISTER:
                     begin
                         data_o_reg = command_reg; // present the read data
-
-                        //// DEBUG
-                        //send_data = { 8'h33 };
-                        //printf = ~printf;
                     end
 
                     default:
@@ -455,10 +458,6 @@ begin
 
         WRITE:
         begin
-
-            //// DEBUG
-            //send_data = { 8'h45 };
-            //printf = ~printf;
 
             // The slave will keep ACK_I asserted until the master negates 
             // [STB_O] and [CYC_O] to indicate the end of the cycle.
@@ -496,31 +495,24 @@ begin
                     begin
                         // data is stored inside the next state logic
                         data_o_reg = command_reg; // present the read data (this is basically a read operation!)
-    
-                        //// DEBUG - data0 update from mem_access triggered
-                        //send_data = { 8'h46 };
-                        //printf = ~printf;
                     end
 
                     default:
                     begin
-                        //// DEBUG - data0 update from mem_access triggered
-                        //send_data = { 8'h47 };
-                        //printf = ~printf;
-
                         data_o_reg = ZERO_VALUE;
                     end
 
-                endcase
-
-                // acknowledge write
-                ack_o_reg = 1;
+                endcase                
 
                 // only if there has not been a reaction to the latest finished write transaction, 
                 // perform a reaction
                 if (transaction_done == 0)
                 begin
                     transaction_done = 1; // buffer the reaction in order to not repeat it again
+
+                    //
+                    // This block is only executed once
+                    //
 
                     // STEP 7 - add line for new register here
                     case (addr_i)
@@ -546,6 +538,8 @@ begin
                             // TODO: execute the abstract command! (e.g. access memory)
                             // FOR NOW; return value 0x12345678 into arg0 (which is data0, in XLEN=32 bit)
 
+                            counter_reg = 0;
+
                             // data0_source_mem_access_data is used to fill data0_reg with data from
                             // the internal system (e.g. by reading a value from a RAM address) instead
                             // of filling data0_reg with a value from an abstract command "write_register".
@@ -559,6 +553,30 @@ begin
                         end
 
                     endcase
+                end
+
+
+                
+                if (counter_reg == 32'h017D7840) // 25 mio = 1 sec
+                begin
+
+`ifdef DEBUG_OUTPUT_MEMORY_ACCESS_TIMER_EXPIRED
+                        // DEBUG
+                        send_data = { 8'h99 };
+                        printf = ~printf;
+`endif
+
+                    counter_reg = 0;
+
+                    // update data0_reg with dummy value for now
+                    instruction_memory_read_done_reg = ~instruction_memory_read_done_reg;
+
+                    // acknowledge write
+                    ack_o_reg = 1;
+                end
+                else
+                begin
+                    counter_reg = counter_reg + 1;
                 end
 
                 next_state = cur_state;
