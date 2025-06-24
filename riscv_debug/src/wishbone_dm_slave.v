@@ -4,17 +4,27 @@
 //`define DEBUG_OUTPUT_MEM_READ_TRIGGERED 1
 `undef DEBUG_OUTPUT_MEM_READ_TRIGGERED
 
-//`define DEBUG_OUTPUT_DATA0_REG_WRITE 1
-`undef DEBUG_OUTPUT_DATA0_REG_WRITE
+// DEBUG Register Data 0 written to
+`define DEBUG_OUTPUT_DATA0_REG_WRITE 1
+//`undef DEBUG_OUTPUT_DATA0_REG_WRITE
 
-`define DEBUG_OUTPUT_DATA1_REG_WRITE 1
-//`undef DEBUG_OUTPUT_DATA1_REG_WRITE
+// DEBUG Register Data 1 written to
+//`define DEBUG_OUTPUT_DATA1_REG_WRITE 1
+`undef DEBUG_OUTPUT_DATA1_REG_WRITE
 
+// DEBUG Register Data 0 is read
 //`define DEBUG_OUTPUT_DATA0_REG_READ 1
 `undef DEBUG_OUTPUT_DATA0_REG_READ
 
+// DEBUG Register Data 1 is read
 //`define DEBUG_OUTPUT_DATA1_REG_READ 1
 `undef DEBUG_OUTPUT_DATA1_REG_READ
+
+//`define DEBUG_OUTPUT_WISHBONE_READ_DONE 1
+`undef DEBUG_OUTPUT_WISHBONE_READ_DONE
+
+`define DEBUG_OUTPUT_ACK 1
+//`undef DEBUG_OUTPUT_ACK
 
 // TODO: read from data0
 
@@ -42,9 +52,10 @@ module wishbone_dm_slave
 
     // output (slaves)
     output wire [63:0] data_o, // data that the slave produces
-    output wire ack_o,  // ack is deasserted until the master starts a cycle/strobe
-                        // ack has to be asserted as long as the master asserts cyc_i and stb_i
-                        // ack goes low once the master stops the cycle/strobe
+    output wire ack_o,  // - ack is deasserted until the master starts a cycle/strobe
+                        // - ack has to be asserted when data is provided and as long as 
+                        //   the master asserts cyc_i and stb_i
+                        // - ack goes low once the master stops the cycle/strobe
 
     // output - custom output goes here ...
     output wire [5:0] led_port_o,
@@ -68,26 +79,18 @@ localparam ZERO_VALUE = 0;
 // dm.data0 (0x04) register, page 30
 localparam ADDRESS_DM_DATA0_REGISTER = 32'h00000004;
 reg [63:0] data0_reg = ZERO_VALUE;
-reg data0_reg_updated = ZERO_VALUE;
-reg data0_reg_updated_old = ZERO_VALUE;
 
 // dm.data1 (0x05) register, page 30
 localparam ADDRESS_DM_DATA1_REGISTER = 32'h00000005;
 reg [63:0] data1_reg = ZERO_VALUE;
-reg data1_reg_updated = ZERO_VALUE;
-reg data1_reg_updated_old = ZERO_VALUE;
 
 // dm.control (0x10) register, page 22
 localparam ADDRESS_DM_CONTROL_REGISTER = 32'h00000010;
 reg [63:0] control_reg = ZERO_VALUE;
-reg control_reg_updated = ZERO_VALUE;
-reg control_reg_updated_old = ZERO_VALUE;
 
 // dm.command (0x17) register, page 28
 localparam ADDRESS_DM_COMMAND_REGISTER = 32'h00000017;
 reg [63:0] command_reg = ZERO_VALUE;
-reg command_reg_updated = ZERO_VALUE;
-reg command_reg_updated_old = ZERO_VALUE;
 
 reg [31:0] pc_o_reg;
 assign pc_o = pc_o_reg;
@@ -123,16 +126,26 @@ reg       abstr_aampostincrement_reg;
 reg       abstr_write_reg;
 reg [1:0] abstr_target_specific_reg;
 
-// this block is here because the register 'data0_reg' has to 
-// be updated by the write register command and also from read memory command
+//reg [31:0] data_is_ready = 0;
+
+// this block is here because the register 'data0_reg' has to be updated by two sources:
+// 1. the abstract command write register command 
+// 2. from a abstract command read memory command
 always @(posedge clk_i)
 begin
+
+    if (cur_state == IDLE)
+    begin
+        //data_is_ready = 0;
+    end
 
     // if reset is asserted, 
     if (rst_i) 
     begin
         // add line for new register here
         data0_reg = ZERO_VALUE;
+
+        //data_is_ready = 0;
     end    
     else 
     begin
@@ -144,7 +157,9 @@ begin
             data0_source_write_reg_old = data0_source_write_reg;
 
             // update data0_reg
-            data0_reg = data_i[31:0];            
+            data0_reg = data_i[31:0];
+
+            //data_is_ready = 26000000;
 
 `ifdef DEBUG_OUTPUT_DATA0_REG_WRITE
             // DEBUG - data0 update from mem_access triggered
@@ -196,11 +211,19 @@ begin
                             printf = ~printf;
 `endif
 
+                            //
+                            // Interface the instruction memory at the address stored in PC.
+                            // Read the memory value from instr_i
+                            // 
+
                             // memory address is expected in data1
                             pc_o_reg = data1_reg[31:0];
 
                             // update data0_reg with dummy value for now
                             data0_reg = instr_i;
+
+                            // This wont work since this branch is only executed once (see toggle gate logic above)
+                            //data_is_ready = data_is_ready + 1;
 
                         end
                         
@@ -209,12 +232,6 @@ begin
                 end
 
             endcase
-
-            // update data0_reg with dummy value for now
-            //data0_reg = 32'h87654321;
-
-            // test if arg0 has been written with the address
-            // To perform this test, just do not override data0_reg
 
 `ifdef DEBUG_OUTPUT_DATA0_REG_WRITE
             // DEBUG - data0 update from mem_access triggered
@@ -272,9 +289,9 @@ begin
         // else transition to the next state
         cur_state = next_state;
 
-        // store the input data into a register (Not in the state machine as
+        // store the input data into a register here instead of inside the state machine as
         // the state machine is not clocked and hence the assignment to a 
-        // register would cause a latch)
+        // register would cause a latch
         if ((cur_state == WRITE) && (cyc_i == 1 && stb_i == 1))
         begin
 
@@ -507,26 +524,21 @@ begin
                         // write dm.data0 (0x04)
                         ADDRESS_DM_DATA0_REGISTER:
                         begin
-                            data0_reg_updated = ~data0_reg_updated; // just used for DEBUG logging
                         end
 
                         // write dm.data1 (0x05)
                         ADDRESS_DM_DATA1_REGISTER:
                         begin
-                            data1_reg_updated = ~data1_reg_updated; // just used for DEBUG logging
                         end
 
                         // write dm.control (0x11)
                         ADDRESS_DM_CONTROL_REGISTER:
                         begin
-                            control_reg_updated = ~control_reg_updated; // just used for DEBUG logging
                         end
 
                         // write dm.command (0x17)
                         ADDRESS_DM_COMMAND_REGISTER:
                         begin
-                            command_reg_updated = ~command_reg_updated; // just used for DEBUG logging
-
                             // TODO: execute the abstract command! (e.g. access memory)
                             // FOR NOW; return value 0x12345678 into arg0 (which is data0, in XLEN=32 bit)
 
@@ -552,6 +564,7 @@ begin
                 data_o_reg = ZERO_VALUE;
                 ack_o_reg = 0;
                 next_state = IDLE;
+                //data_is_ready = 0;
             end
         end
 

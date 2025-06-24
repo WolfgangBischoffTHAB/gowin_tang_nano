@@ -73,6 +73,8 @@ localparam INIT_READ = 1;
 localparam INIT_WRITE = 2;
 localparam STOP_READ = 3;
 localparam STOP_WRITE = 4;
+localparam WAIT_ACK_READ = 5;
+localparam WAIT_ACK_WRITE = 6;
 
 // current and next_state
 reg [2:0] cur_state = IDLE;
@@ -256,24 +258,14 @@ begin
 
             // latch the data read from the slave
             read_transaction_data_o_reg = data_i;
-            
-            // store data into storage that keeps it's value until the next read transaction is initiated
-            //last_read_value_reg = data_i;
-            //wishbone_master_ack_o_reg = 1;
-
-            // DEBUG printf - print first byte of received DWORD
-            //send_data = data_i[31:24];
-            //printf = ~printf;
 
             if (start_read_transaction_i_reg == 0)
             begin
 
-                // tell the slave to deassert ack
-                // strobe/phase and cycle are synonyms for standard, non-pipelined operations
-                cyc_o = 0;
-                stb_o = 0;
+                cyc_o = 1;
+                stb_o = 1;
 
-                next_state = IDLE;
+                next_state = WAIT_ACK_READ;
             end
             else
             begin
@@ -290,11 +282,35 @@ begin
         STOP_WRITE:
         begin
             we_o_reg = 0;
-
-            // latch the data read from the slave
             read_transaction_data_o_reg = 64'h00;
 
             if (start_write_transaction_i_reg == 0)
+            begin
+                cyc_o = 1;
+                stb_o = 1;
+
+                next_state = WAIT_ACK_WRITE;
+            end
+            else
+            begin
+                cyc_o = 1;
+                stb_o = 1;
+
+                next_state = cur_state;
+            end
+        end
+
+        WAIT_ACK_READ:
+        begin
+            // latch the data read from the slave
+            read_transaction_data_o_reg = data_i;
+
+            cyc_o = 0;
+            stb_o = 0;
+            read_transaction_data_o_reg = data_i;
+            we_o_reg = 0;
+
+            if (ack_i == 1)
             begin
                 // tell the slave to deassert ack
                 // strobe/phase and cycle are synonyms for standard, non-pipelined operations
@@ -305,9 +321,30 @@ begin
             end
             else
             begin
-                cyc_o = 1;
-                stb_o = 1;
+                next_state = cur_state;
+            end
+        end
 
+        WAIT_ACK_WRITE:
+        begin
+            read_transaction_data_o_reg = 64'h00;
+
+            cyc_o = 0;
+            stb_o = 0;
+            read_transaction_data_o_reg = data_i;
+            we_o_reg = 0;
+
+            if (ack_i == 1)
+            begin
+                // tell the slave to deassert ack
+                // strobe/phase and cycle are synonyms for standard, non-pipelined operations
+                cyc_o = 0;
+                stb_o = 0;
+
+                next_state = IDLE;
+            end
+            else
+            begin
                 next_state = cur_state;
             end
         end

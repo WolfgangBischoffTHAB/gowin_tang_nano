@@ -127,7 +127,7 @@ begin
             end
             else
             begin
-                data_o_reg = ~32'b00; // output a dummy value
+                data_o_reg = 32'b00;
                 ack_o_reg = 0;
 
                 next_state = IDLE;
