@@ -5,16 +5,16 @@
 `undef DEBUG_OUTPUT_MEM_READ_TRIGGERED
 
 // DEBUG Register Data 0 written to
-`define DEBUG_OUTPUT_DATA0_REG_WRITE 1
-//`undef DEBUG_OUTPUT_DATA0_REG_WRITE
+//`define DEBUG_OUTPUT_DATA0_REG_WRITE 1
+`undef DEBUG_OUTPUT_DATA0_REG_WRITE
 
 // DEBUG Register Data 1 written to
 //`define DEBUG_OUTPUT_DATA1_REG_WRITE 1
 `undef DEBUG_OUTPUT_DATA1_REG_WRITE
 
 // DEBUG Register Data 0 is read
-//`define DEBUG_OUTPUT_DATA0_REG_READ 1
-`undef DEBUG_OUTPUT_DATA0_REG_READ
+`define DEBUG_OUTPUT_DATA0_REG_READ 1
+//`undef DEBUG_OUTPUT_DATA0_REG_READ
 
 // DEBUG Register Data 1 is read
 //`define DEBUG_OUTPUT_DATA1_REG_READ 1
@@ -23,8 +23,8 @@
 //`define DEBUG_OUTPUT_WISHBONE_READ_DONE 1
 `undef DEBUG_OUTPUT_WISHBONE_READ_DONE
 
-`define DEBUG_OUTPUT_ACK 1
-//`undef DEBUG_OUTPUT_ACK
+//`define DEBUG_OUTPUT_ACK 1
+`undef DEBUG_OUTPUT_ACK
 
 // TODO: read from data0
 
@@ -211,6 +211,7 @@ begin
                             printf = ~printf;
 `endif
 
+/*
                             //
                             // Interface the instruction memory at the address stored in PC.
                             // Read the memory value from instr_i
@@ -221,6 +222,8 @@ begin
 
                             // update data0_reg with dummy value for now
                             data0_reg = instr_i;
+*/
+                            data0_reg = 32'hCAFEBABE;
 
                             // This wont work since this branch is only executed once (see toggle gate logic above)
                             //data_is_ready = data_is_ready + 1;
@@ -391,7 +394,8 @@ begin
 
 `ifdef DEBUG_OUTPUT_DATA0_REG_READ
                         // DEBUG - data0 update from mem_access triggered
-                        send_data = { 8'h30 };
+                        //send_data = { 8'h30 };
+                        send_data = data0_reg[7:0];
                         printf = ~printf;
 `endif
                     end
