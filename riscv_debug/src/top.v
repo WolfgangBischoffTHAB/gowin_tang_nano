@@ -132,8 +132,22 @@ wire [31:0] Instr;
 reg [31:0] Instr_reg;
 assign Instr = Instr_reg;
 
+wire we_imem;
+wire [31:0] write_data_imem;
+
 // instruction memory
-imem imem(debounced_sys_rst_n_wire, PC, Instr);
+imem imem(
+
+    // input
+    .clk(sys_clk),
+    .sys_rst_n(debounced_sys_rst_n_wire),
+    .we(we_imem),
+    .a(PC),    
+    .write_data(write_data_imem),
+
+    // output
+    .rd(Instr)
+);
 
 /**/
 //
@@ -227,6 +241,10 @@ wishbone_dm_slave #(
 
     // input custom
     .instr_i(Instr),
+
+    // output instruction memory
+    .we_imem_i(we_imem),
+    .write_data_imem_i(write_data_imem),
 
     // output slave
     .data_o(read_data), // the slave returns the read data to the master from .data_o

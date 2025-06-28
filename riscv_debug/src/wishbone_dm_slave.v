@@ -51,6 +51,9 @@ module wishbone_dm_slave
     // input - custom input goes here ...
     input wire [31:0] instr_i,
 
+    output wire we_imem_i,
+    output wire [31:0] write_data_imem_i,
+
     // output (slaves)
     output wire [63:0] data_o, // data that the slave produces
     output wire ack_o,  // - ack is deasserted until the master starts a cycle/strobe
@@ -96,6 +99,12 @@ reg [63:0] command_reg = ZERO_VALUE;
 reg [31:0] pc_o_reg;
 assign pc_o = pc_o_reg;
 
+reg we_imem_i_reg = 0;
+assign we_imem_i = we_imem_i_reg;
+
+reg [31:0] write_data_imem_i_reg = 0;
+assign write_data_imem_i = write_data_imem_i_reg;
+
 localparam HALTREQ = 31;
 localparam RESUMEREQ = 30;
 localparam HARTRESET = 29;
@@ -140,13 +149,13 @@ reg [1:0] abstr_target_specific_reg;
 always @(posedge clk_i)
 begin
 
-   
-
     // if reset is asserted, 
     if (rst_i) 
     begin
         // add line for new register here
         data0_reg = ZERO_VALUE;
+
+        we_imem_i_reg = 0;
     end    
     else 
     begin
@@ -196,40 +205,38 @@ begin
                         8'h00: // write
                         begin
 `ifdef DEBUG_OUTPUT_MEM_READ_TRIGGERED
-                            // DEBUG - data0 update from mem_access triggered
+                            // DEBUG - read memory abstract command
                             send_data = { 8'h4C };
                             printf = ~printf;
-`endif                    
+`endif
+                    
+                            // data0 contains the data to write
+                            // data1 contains the address to write the data to
+                            pc_o_reg = data1_reg[31:0];
+
+                            // write enable to imem
+                            we_imem_i_reg = 1;
+
+                            write_data_imem_i_reg = data0_reg[31:0];
                         end
 
                         8'h01: // read
                         begin
 `ifdef DEBUG_OUTPUT_MEM_READ_TRIGGERED
-                            // DEBUG - data0 update from mem_access triggered
+                            // DEBUG - read memory abstract command
                             send_data = { 8'h4D };
                             printf = ~printf;
 `endif
-
-/**/
                             //
-                            // Interface the instruction memory at the address stored in PC.
+                            // interface the instruction memory at the address stored in PC.
                             // Read the memory value from instr_i
-                            // 
+                            //
+
+                            // read enable to imem
+                            we_imem_i_reg = 0;
 
                             // memory address is expected in data1
                             pc_o_reg = data1_reg[31:0];
-
-                            // update data0_reg with dummy value for now
-                            //data0_reg = instr_i;
-
-
-
-//                            data0_reg = 32'hCAFEBABE;
-
-
-
-                            // This wont work since this branch is only executed once (see toggle gate logic above)
-                            //data_is_ready = data_is_ready + 1;
 
                         end
                         
@@ -535,14 +542,15 @@ begin
                         // write dm.command (0x17)
                         ADDRESS_DM_COMMAND_REGISTER:
                         begin
-                            // TODO: execute the abstract command! (e.g. access memory)
-                            // FOR NOW; return value 0x12345678 into arg0 (which is data0, in XLEN=32 bit)
+                            // execute the abstract command! (e.g. access memory)
 
+                            // wait for imem access
                             counter_reg = 0;
 
                             // data0_source_mem_access_data is used to fill data0_reg with data from
                             // the internal system (e.g. by reading a value from a RAM address) instead
                             // of filling data0_reg with a value from an abstract command "write_register".
+                            //
                             // If you want to execute an abstract command "write_register", you have to 
                             // toggle 'data0_source_write_reg'
                             data0_source_mem_access_data = ~data0_source_mem_access_data;
@@ -554,19 +562,20 @@ begin
 
                     endcase
                 end
-
-
                 
                 if (counter_reg == 32'h017D7840) // 25 mio = 1 sec
                 begin
-
 `ifdef DEBUG_OUTPUT_MEMORY_ACCESS_TIMER_EXPIRED
                         // DEBUG
                         send_data = { 8'h99 };
                         printf = ~printf;
 `endif
 
+                    // reset counter variable
                     counter_reg = 0;
+
+                    // read enable imem
+                    //we_imem_i_reg = 0;
 
                     // update data0_reg with dummy value for now
                     instruction_memory_read_done_reg = ~instruction_memory_read_done_reg;
@@ -586,7 +595,6 @@ begin
                 data_o_reg = ZERO_VALUE;
                 ack_o_reg = 0;
                 next_state = IDLE;
-                //data_is_ready = 0;
             end
         end
 
