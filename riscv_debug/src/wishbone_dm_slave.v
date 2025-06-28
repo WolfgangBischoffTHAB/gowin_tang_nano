@@ -26,8 +26,11 @@
 //`define DEBUG_OUTPUT_ACK 1
 `undef DEBUG_OUTPUT_ACK
 
-`define DEBUG_OUTPUT_MEMORY_ACCESS_TIMER_EXPIRED 1
-//`undef DEBUG_OUTPUT_MEMORY_ACCESS_TIMER_EXPIRED
+//`define DEBUG_OUTPUT_MEMORY_ACCESS_TIMER_EXPIRED 1
+`undef DEBUG_OUTPUT_MEMORY_ACCESS_TIMER_EXPIRED
+
+`define DEBUG_OUTPUT_DM_CONTROL_WRITTEN 1
+//`undef DEBUG_OUTPUT_DM_CONTROL_WRITTEN
 
 // DM (RISCV DebugSpec, DM)
 //
@@ -141,7 +144,18 @@ reg       abstr_aampostincrement_reg;
 reg       abstr_write_reg;
 reg [1:0] abstr_target_specific_reg;
 
-//reg [31:0] data_is_ready = 0;
+// fields of the dm.command register
+reg haltreq                 = 0; // Writing 0 clears the halt request bit for all currently selected harts ...
+reg resumereq               = 0; // Writing 1 causes the currently selected harts to resume once ...
+reg hartreset               = 0; //
+reg ackhavereset            = 0; //
+reg hasel                   = 0; //
+reg [9:0] hartsello         = 0; //
+reg [9:0] hartselhi         = 0; //
+reg [1:0] setresethaltreq   = 0; //
+reg clrresethaltreq         = 0; //
+reg ndmreset                = 0; // This bit controls the reset signal from the DM to the rest of the system.
+reg dmactive                = 0; //
 
 // this block is here because the register 'data0_reg' has to be updated by two sources:
 // 1. the abstract command write register command 
@@ -232,7 +246,7 @@ begin
                             // Read the memory value from instr_i
                             //
 
-                            // read enable to imem
+                            // to imem: perform read enable (instead of write enable)
                             we_imem_i_reg = 0;
 
                             // memory address is expected in data1
@@ -364,7 +378,7 @@ begin
 
 end
 
-// combinational always block for next state logic
+// combinational always block for next state logic of the wishbone state machine
 always @(posedge clk_i)
 begin
 
@@ -537,6 +551,43 @@ begin
                         // write dm.control (0x11)
                         ADDRESS_DM_CONTROL_REGISTER:
                         begin
+                            // The control register is written to.
+                            // This can be used to perform a ndmreset for example to reset all harts
+//`ifdef DEBUG_OUTPUT_DM_CONTROL_WRITTEN
+//                            // DEBUG
+//                            send_data = { 8'h77 };
+//                            printf = ~printf;
+//`endif
+
+                            haltreq         = data_i[31];       // Writing 0 clears the halt request bit for all currently selected harts ...
+                            resumereq       = data_i[30];       // Writing 1 causes the currently selected harts to resume once ...
+                            hartreset       = data_i[29];       //
+                            ackhavereset    = data_i[28];       //
+                            hasel           = data_i[26];       //
+                            hartsello       = data_i[25:16];    //
+                            hartselhi       = data_i[15:6];     //
+                            setresethaltreq = data_i[3];        //
+                            clrresethaltreq = data_i[2];        //
+                            ndmreset        = data_i[1];        // This bit controls the reset signal from the DM to the rest of the system.
+                            dmactive        = data_i[0];        //
+
+                            if (ndmreset == 1'b1)
+                            begin
+`ifdef DEBUG_OUTPUT_DM_CONTROL_WRITTEN
+                            // DEBUG
+                            send_data = { 8'h78 };
+                            printf = ~printf;
+`endif
+                            end
+                            else
+                            begin
+`ifdef DEBUG_OUTPUT_DM_CONTROL_WRITTEN
+                            // DEBUG
+                            send_data = { 8'h79 };
+                            printf = ~printf;
+`endif
+                            end
+
                         end
 
                         // write dm.command (0x17)

@@ -2,10 +2,10 @@
 //`undef DEBUG_OUTPUT_DM_WB_SLAVE
 
 //`define DEBUG_OUTPUT_WB_MASTER 1
-//`undef DEBUG_OUTPUT_WB_MASTER
+`undef DEBUG_OUTPUT_WB_MASTER
 
 //`define DEBUG_OUTPUT_JTAG_TAP 1
-//`undef DEBUG_OUTPUT_JTAG_TAP
+`undef DEBUG_OUTPUT_JTAG_TAP
 
 // the state machine that runs the demo application has three states: IDLE, SEND and WAIT
 //
