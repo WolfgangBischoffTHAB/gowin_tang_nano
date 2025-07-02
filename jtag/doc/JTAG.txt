@@ -1451,6 +1451,17 @@ Writing 0 clears the halt request bit for all currently selected harts. Halt req
 Writing 1 sets the halt request bit for all currently selected harts. The harts will halt. They will halt after reset also.
 
 
+
+
+
+
+
+
+
+
+
+
+
 ### Make a hart reset and halt on the first instruction:
 
 1. First determine HARTSELLEN.
@@ -1466,14 +1477,64 @@ To reset a the selected harts only, toggle the hartreset bit of dmcontrol, at 0x
 
 Now you can query register values or memory content.
 
+
+
+
 ### In order to single step:
 
-See 4.5. Single Step (page 49) 
-An external debugger can cause a halted hart to execute a single instruction or trap and then re-enter
-Debug Mode by setting step before resuming. If step is set when a hart resumes then it will single step,
-regardless of the reason for resuming.
+RISCV Debug Specification - Page 49 - 
 
-step is a bit inside the Debug Control and Status (dcsr, at 0x7b0) register (page 51ff).
+1. Halt the hart 
+	- Set dm.control.resumereq to 0 so that the hart will not immediately resume.
+	- Set the dm.control.haltreq bit to 1 for the currently selected hart. It will halt. 
+	- Now set dm.control.haltreq bit to 0 to turn off the halt command. The hart will not resume after that action.
+2. While the hart is halted, set the hart.dcsr.step bit to 1 (the hart will single step as soon as it is resumed)
+   dcsr == Debug Control and Status (dcsr, at 0x7b0) see page 51. The dcsr is part of the Hart, not of the DM!
+3. Resume the hart by setting dm.control.resumereq to 1.
+4. The hart will execute a single step and again halt automatically. Set dm.control.resumereq to 0.
+5. Back to 3 for the next single step
+
+In order to resume, you need to get rid of the single step bit. Set hart.dcsr.step bit to 0.
+Then resume the hart by setting dm.control.resumereq to 1 and back to 0 again.
+
+
+
+First step:
+Implement halting the hart (Set the dm.control.haltreq bit to 1 and back to 0 again)
+Implement resuming the hart (Set dm.control.resumereq to 1 and back to 0 again)
+
+Second step:
+Add an implementation of the single step bit (hart.dcsr.step)
+
+
+See 4.5. Single Step (page 49) or in the DebugSpec, 4.4 Single Step, page 40.
+
+An external debugger can cause a halted hart to execute a single instruction or trap and then re-enter
+Debug Mode by setting "step" before resuming. 
+
+If "step" is set when a hart resumes then it will single step, regardless of the reason for resuming.
+
+A debugger can cause a halted hart to execute a single instruction and then re-enter Debug Mode by setting step before setting resumereq.
+
+
+"resumereq" is a bit inside 3.12.2 Debug Module Control (dmcontrol, at 0x10) dm.control
+
+"step" is a bit inside the Debug Control and Status (dcsr, at 0x7b0) register (page 51ff). dcsr is a register inside the Hart!!!!
+
+The supported Core Debug Registers must be implemented for each hart that can be debugged.
+They are CSRs, accessible using the RISC-V csr opcodes and optionally also using abstract debug
+commands. These registers are only accessible from Debug Mode.
+
+You have to add a dcsr register with address 0x7b0 into the RISC V CPU!
+The DM has to have access to the dcsr register so it can set and reset the step flag!
+When the Hart sees dcsr.step asserted, it will start single stepping
+
+
+
+
+
+
+
 
 ### To resume a hart, (page 15, Run control):
 

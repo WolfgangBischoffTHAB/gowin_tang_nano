@@ -67,6 +67,7 @@ module wishbone_dm_slave
     // output - custom output goes here ...
     output wire [5:0] led_port_o,
     output wire [31:0] pc_o,
+    output wire clock_signal_selector_o,
 
     // printf - needs to be enabled in top module by assigning values to these two ports
     // does not work because this state machine is not clocked and this causes a cycle in the tree
@@ -76,6 +77,9 @@ module wishbone_dm_slave
 );
 
 localparam ZERO_VALUE = 0;
+
+reg clock_signal_selector_reg = 0;
+assign clock_signal_selector_o = clock_signal_selector_reg;
 
 //
 // DM (RISCV DebugSpec, DM)
@@ -354,7 +358,7 @@ begin
 `endif
                 end
 
-                // write dm.dmcontrol (0x11)
+                // write dm.dmcontrol (0x10)
                 ADDRESS_DM_CONTROL_REGISTER:
                 begin
                     control_reg = data_i; // store the written value into the control register of this DM
@@ -548,7 +552,7 @@ begin
                         begin
                         end
 
-                        // write dm.control (0x11)
+                        // write dm.control (0x10)
                         ADDRESS_DM_CONTROL_REGISTER:
                         begin
                             // The control register is written to.
@@ -571,22 +575,58 @@ begin
                             ndmreset        = data_i[1];        // This bit controls the reset signal from the DM to the rest of the system.
                             dmactive        = data_i[0];        //
 
+                            if (haltreq == 1'b1)
+                            begin
+`ifdef DEBUG_OUTPUT_DM_CONTROL_WRITTEN
+                            // DEBUG
+                            send_data = { 8'h70 };
+                            printf = ~printf;
+`endif
+                            clock_signal_selector_reg = 1'b1;
+                            end
+/*                            else
+                            begin
+`ifdef DEBUG_OUTPUT_DM_CONTROL_WRITTEN
+                            // DEBUG
+                            send_data = { 8'h71 };
+                            printf = ~printf;
+`endif
+                            end*/
+
+                            if (resumereq == 1'b1)
+                            begin
+`ifdef DEBUG_OUTPUT_DM_CONTROL_WRITTEN
+                            // DEBUG
+                            send_data = { 8'h72 };
+                            printf = ~printf;
+`endif
+                            clock_signal_selector_reg = 1'b0;
+                            end
+/*                            else
+                            begin
+`ifdef DEBUG_OUTPUT_DM_CONTROL_WRITTEN
+                            // DEBUG
+                            send_data = { 8'h73 };
+                            printf = ~printf;
+`endif
+                            end*/
+
                             if (ndmreset == 1'b1)
                             begin
 `ifdef DEBUG_OUTPUT_DM_CONTROL_WRITTEN
                             // DEBUG
-                            send_data = { 8'h78 };
+                            send_data = { 8'h74 };
                             printf = ~printf;
 `endif
                             end
-                            else
+/*                            else
                             begin
 `ifdef DEBUG_OUTPUT_DM_CONTROL_WRITTEN
                             // DEBUG
-                            send_data = { 8'h79 };
+                            send_data = { 8'h75 };
                             printf = ~printf;
 `endif
-                            end
+                            end*/
 
                         end
 

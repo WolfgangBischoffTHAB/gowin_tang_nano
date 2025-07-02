@@ -15,7 +15,7 @@ module dmem(
 
     reg [31:0] RAM[63:0];
 
-    reg temp_led;
+    reg temp_led = 0;
     assign led = temp_led;
 
     // read
@@ -24,32 +24,15 @@ module dmem(
     // write
     always @(posedge clk)
     begin
-
-/*
-        if (reset_n == 1'b0)
-        begin
-            //temp_led = 1'b0;
-            temp_led = ~temp_led;
-        end
-        else
-        begin
-            temp_led = ~temp_led;
-        end
-*/
-
         if (we)
         begin
             RAM[a[31:2]] <= wd;
-
-            //if (a[31:2] == 32'd52)
-            //begin
-            //    temp_led = ~temp_led;
-            //end
-
-            temp_led = ~temp_led;
-
         end
+    end
 
+    always @(posedge we)
+    begin
+        temp_led = ~temp_led;
     end
 
 endmodule

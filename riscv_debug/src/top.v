@@ -7,6 +7,9 @@
 //`define DEBUG_OUTPUT_JTAG_TAP 1
 `undef DEBUG_OUTPUT_JTAG_TAP
 
+//`define DEBUG_OUTPUT_RISCV_CPU 1
+`undef DEBUG_OUTPUT_RISCV_CPU
+
 // the state machine that runs the demo application has three states: IDLE, SEND and WAIT
 //
 // IDLE is entered on reset. IDLE immediately transitions to SEND.
@@ -41,14 +44,21 @@ module top(
 
 );
 
-/**/
+assign led[0] = 0;
+assign led[1] = 0;
+assign led[2] = 0;
+//assign led[3] = 0; // LED 3 - connected to dmem
+//assign led[4] = 0; // LED 4 - connected to the RISCV CPU
+//assign led[5] = 0; // LED 5 - On MemWrite in top level module
+
+/*
 assign led[0] = ~jtag_tdi_i;
 assign led[1] = jtag_tdi_i;
 assign led[2] = ~jtag_tdi_i;
 assign led[3] = jtag_tdi_i;
 assign led[4] = ~jtag_tdi_i;
 assign led[5] = jtag_tdi_i;
-
+*/
 /*
 assign led[0] = ~jtag_clk;
 assign led[1] = jtag_clk;
@@ -58,14 +68,14 @@ assign led[4] = ~jtag_clk;
 assign led[5] = jtag_clk;
 */
 
-wire debounced_sys_rst_n_wire;
+wire sys_rst_n_debounced;
 
 // Instantiate Debounce Module for the reset button
 Debounce_Switch debounce_sys_rst_n
 (
     .i_Clk(sys_clk), 
     .i_Switch(sys_rst_n),
-    .o_Switch(debounced_sys_rst_n_wire)
+    .o_Switch(sys_rst_n_debounced)
 );
 
 /**/
@@ -121,26 +131,123 @@ wire [DATA_NUM * 8 - 1:0] send_data; // bits to send
 wire printf;
 
 //
+// Drive clock_out_reg from [sys_clk] => [clock_divider] => clock_out_reg
+//
+
+// divide clock into the slow clock
+// Mhz. The Tang Nano 9K has a 27 Mhz clock source on board
+
+wire slow_clock_out;
+reg slow_clock_out_reg;
+assign slow_clock_out = slow_clock_out_reg;
+
+reg [31:0] slow_counter = 32'd0;
+parameter SLOW_DIVISOR = 32'd27000000;
+always @(posedge sys_clk)
+begin
+    slow_counter <= slow_counter + 32'd1;
+    if (slow_counter >= (SLOW_DIVISOR - 1))
+    begin
+        slow_counter <= 32'd0;
+    end
+    slow_clock_out_reg <= (slow_counter < (SLOW_DIVISOR / 2)) ? 1'b1 : 1'b0;
+end
+
+// divide clock into the mid clock
+// Mhz. The Tang Nano 9K has a 27 Mhz clock source on board
+
+wire mid_clock_out;
+reg mid_clock_out_reg;
+assign mid_clock_out = mid_clock_out_reg;
+
+reg [31:0] mid_counter = 32'd0;
+parameter MID_DIVISOR = 32'd13500000;
+always @(posedge sys_clk)
+begin
+    mid_counter <= mid_counter + 32'd1;
+    if (mid_counter >= (MID_DIVISOR - 1))
+    begin
+        mid_counter <= 32'd0;
+    end
+    mid_clock_out_reg <= (mid_counter < (MID_DIVISOR / 2)) ? 1'b1 : 1'b0;
+end
+
+// clock that is off
+
+wire off_clock_out = 1'b0;
+
+//
 // RISCV CPU
 //
 
-wire [31:0] PC;
-//reg [31:0] PC_reg;
-//assign PC = PC_reg;
-
-wire [31:0] Instr;
-reg [31:0] Instr_reg;
-assign Instr = Instr_reg;
-
 wire we_imem;
 wire [31:0] write_data_imem;
+wire [2:0] ALUControl;
+wire [31:0] PC; // goes out ti imem as an address wire
+wire [31:0] processor_PC;
+wire [31:0] dm_PC;
+// TODO: hook up the hardcoded select (param 3) to the DebugSpec DM slave for abstract write commands to work
+mux2 #(32) PC_mux(dm_PC, processor_PC, 1'b1, PC); // [input 0][input 1][selector (0 or 1)][output]
+wire [31:0] Instr;
+//reg [31:0] Instr_reg;
+//assign Instr = Instr_reg;
+wire [31:0] ReadData;
+wire [31:0] WriteData;
+wire [31:0] DataAdr;
+wire MemWrite;
+
+// DEBUG: store the current clock signal selector
+wire clock_signal_selector;
+reg clock_signal_selector_reg = 0;
+always @(posedge sys_clk)
+begin
+    clock_signal_selector_reg = clock_signal_selector;
+end
+
+wire clock;
+mux2 #(1) clock_mux(slow_clock_out, off_clock_out, clock_signal_selector_reg, clock); // [input 0][input 1][selector (0 or 1)][output]
+
+// instantiate processor
+riscvsingle #(.DATA_NUM(DATA_NUM)) rvsingle(
+
+    //.clk(slow_clock_out), // input, slow clock
+    .clk(clock), // Input, mid clock
+    .reset_n(sys_rst_n_debounced), 
+    .PC(processor_PC), // output
+    .Instr(Instr), 
+    .MemWrite(MemWrite), // output
+    .ALUResult(DataAdr), 
+    .WriteData(WriteData), 
+    .ReadData(ReadData),
+    .ALUControl(ALUControl),
+    .led(led[4]), // led 4 - blinks LED 4 every clk edge
+
+`ifdef DEBUG_OUTPUT_RISCV_CPU
+    // printf - enabled
+    .send_data(send_data),
+    .printf(printf)    
+`else
+    // printf - disabled
+    .send_data(),
+    .printf()
+`endif
+
+);
+
+reg led_5_reg = 0;
+assign led[5] = led_5_reg;
+
+always @(posedge MemWrite)
+begin
+    led_5_reg = ~led_5_reg;
+end
 
 // instruction memory
 imem imem(
 
     // input
-    .clk(sys_clk),
-    .sys_rst_n(debounced_sys_rst_n_wire),
+    .clk(sys_clk), // fast clock
+    .sys_rst_n(sys_rst_n_debounced),
     .we(we_imem),
     .a(PC),    
     .write_data(write_data_imem),
@@ -149,7 +256,27 @@ imem imem(
     .rd(Instr)
 );
 
-/**/
+// data memory
+dmem dmem(
+
+    // input
+    .clk(sys_clk), // fast clock
+    .reset_n(sys_rst_n_debounced),
+    .we(MemWrite), // write enable for dmem
+    .a(DataAdr),
+    .wd(WriteData),
+
+    // output
+    .rd(ReadData),
+    .led(led[3]) // blink the led whenever write enable is true
+
+);
+
+
+
+
+
+
 //
 // wishbone master
 //
@@ -253,7 +380,8 @@ wishbone_dm_slave #(
     // output wbi
     //.led_port_o(led), // output to the LEDs port
     .led_port_o(),
-    .pc_o(PC),
+    .pc_o(dm_PC),
+    .clock_signal_selector_o(clock_signal_selector),
 
 `ifdef DEBUG_OUTPUT_DM_WB_SLAVE
     // printf - enabled

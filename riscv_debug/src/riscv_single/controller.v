@@ -22,8 +22,11 @@ module controller(
     wire Branch;
 
     maindec md(
+
         // input
-        op, 
+        op,
+
+        // output
         ResultSrc, 
         MemWrite, 
         Branch, 
@@ -31,18 +34,21 @@ module controller(
         RegWrite, 
         Jump, 
         ImmSrc,
-        // output
         ALUOp
+
     );
 
     aludec ad(
+
         // input
         op[5], 
         funct3, 
         funct7b5, 
         ALUOp, 
+
         // output
         ALUControl
+
     );
 
     assign PCSrc = Branch & Zero | Jump;
